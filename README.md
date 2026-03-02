@@ -1,4 +1,4 @@
-# Ideaboardz MCP Server (TypeScript)
+# ideaboardz-mcp-server
 
 MCP server for integrating with public boards on [ideaboardz.com](https://ideaboardz.com/).
 
@@ -12,7 +12,7 @@ MCP server for integrating with public boards on [ideaboardz.com](https://ideabo
 
 - Node.js 18+
 
-## Setup
+## Local Setup
 
 ```bash
 npm install
@@ -31,16 +31,61 @@ For local development:
 npm run dev
 ```
 
-## MCP Config Example
+## MCP Config (OpenCode)
 
-Use this in your MCP client config (adjust absolute path):
+After publishing, use this OpenCode config:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ideaboardz": {
+      "type": "local",
+      "command": ["npx", "-y", "ideaboardz-mcp-server"]
+    }
+  }
+}
+```
+
+If you published under a different package name, replace `ideaboardz-mcp-server` with your published name.
+
+## MCP Config (Claude)
+
+Use this in your Claude MCP config (for example, Claude Desktop):
 
 ```json
 {
   "mcpServers": {
     "ideaboardz": {
-      "command": "node",
-      "args": ["/absolute/path/to/ideaboardz-mcp/dist/index.js"]
+      "command": "npx",
+      "args": ["-y", "ideaboardz-mcp-server"]
+    }
+  }
+}
+```
+
+If you published under a different package name, replace `ideaboardz-mcp-server` with your published name.
+
+### Example Claude Prompts
+
+- "Get the sections for board `test/2` so I can see each `sectionId`."
+- "List all stickies in `test/2` and group them by section."
+- "Create a sticky in section `12345` on `test/2` with message `Ship weekly demo`."
+- "Move sticky `67890` to section `12346` on `test/2`."
+- "Upvote sticky `67890` on `test/2`."
+- "Delete sticky `67890` from `test/2`."
+
+## MCP Config (Local Build)
+
+Use this if you want to run from a local clone instead of npm:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ideaboardz": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/ideaboardz-mcp/dist/index.js"]
     }
   }
 }
