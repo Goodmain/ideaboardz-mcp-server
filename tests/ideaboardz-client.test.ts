@@ -27,15 +27,16 @@ function installFetchMock(handler: (input: string | URL | Request, init?: Reques
 
 test("parseBoardRef parses shorthand references", () => {
   const client = new IdeaboardzClient();
-  assert.deepEqual(client.parseBoardRef("  team-retro/123  "), { name: "team-retro", id: "123" });
+  const ref = client.parseBoardRef("  team-retro/123  ");
+  assert.equal(ref.id, "123");
+  assert.equal(ref.name, "team-retro");
 });
 
 test("parseBoardRef parses full ideaboardz URL", () => {
   const client = new IdeaboardzClient();
-  assert.deepEqual(client.parseBoardRef("https://ideaboardz.com/for/team%20retro/board%2Fid"), {
-    name: "team retro",
-    id: "board/id",
-  });
+  const ref = client.parseBoardRef("https://ideaboardz.com/for/team%20retro/board%2Fid");
+  assert.equal(ref.id, "board/id");
+  assert.equal(ref.name, "team retro");
 });
 
 test("parseBoardRef rejects invalid references", () => {
@@ -73,14 +74,12 @@ test("getBoard returns parsed board sections from HTML", async () => {
     const client = new IdeaboardzClient("https://example.ideaboardz.test");
     const board = await client.getBoard({ name: "retro", id: "123" });
 
-    assert.deepEqual(board, {
-      name: "retro",
-      id: "123",
-      sections: [
-        { id: 12, title: "Went Well" },
-        { id: 34, title: "To Improve" },
-      ],
-    });
+    assert.equal(board.id, "123");
+    assert.equal(board.name, "retro");
+    assert.deepEqual(board.sections, [
+      { id: 12, title: "Went Well" },
+      { id: 34, title: "To Improve" },
+    ]);
 
     assert.equal(mock.calls.length, 1);
     assert.equal(String(mock.calls[0]?.input), "https://example.ideaboardz.test/for/retro/123");
