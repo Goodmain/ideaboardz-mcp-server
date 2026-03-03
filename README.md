@@ -17,6 +17,7 @@ MCP server for integrating with public boards on [ideaboardz.com](https://ideabo
 ```bash
 npm install
 npm run build
+npm test
 ```
 
 ## Run
