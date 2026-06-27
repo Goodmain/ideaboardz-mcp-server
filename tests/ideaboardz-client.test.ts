@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { IdeaboardzClient, type Point } from "../src/ideaboardz-client.js";
+import type { CaptchaSolver } from "../src/captcha-solver.js";
 
 type FetchCall = {
   input: string | URL | Request;
@@ -120,6 +121,107 @@ test("createPoint sends form data and parses non-JSON responses", async () => {
     assert.equal(
       String(mock.calls[0]?.input),
       "https://example.ideaboardz.test/api/retros/123/retro/sections/9/points",
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+test("createBoard scrapes token, solves captcha, and returns the new board ref", async () => {
+  const formHtml = `
+    <form action="/retros" method="post">
+      <input name="authenticity_token" value="csrf-123" />
+      <div class="g-recaptcha" data-sitekey="site-key-abc"></div>
+    </form>
+  `;
+
+  let solverCall: { siteKey: string; pageUrl: string } | undefined;
+  const solver: CaptchaSolver = {
+    async solveRecaptchaV2(params) {
+      solverCall = params;
+      return "captcha-token-xyz";
+    },
+  };
+
+  const mock = installFetchMock(async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/") && (!init || init.method === undefined)) {
+      return new Response(formHtml, {
+        status: 200,
+        headers: { "set-cookie": "_session=abc; path=/; HttpOnly" },
+      });
+    }
+    if (url.endsWith("/retros")) {
+      assert.equal(init?.method, "POST");
+      assert.ok(init?.body instanceof URLSearchParams);
+      const body = init.body;
+      assert.equal(body.get("authenticity_token"), "csrf-123");
+      assert.equal(body.get("g-recaptcha-response"), "captcha-token-xyz");
+      assert.equal(body.get("name"), "Team Retro");
+      assert.equal(body.get("numberOfSections"), "2");
+      assert.equal(body.get("sectionname0"), "Good");
+      assert.equal(body.get("sectionname1"), "Bad");
+      assert.equal((init.headers as Record<string, string>).cookie, "_session=abc");
+      return new Response("", { status: 302, headers: { location: "/for/Team%20Retro/xyz789" } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  try {
+    const client = new IdeaboardzClient("https://example.ideaboardz.test", solver);
+    const board = await client.createBoard({
+      name: "Team Retro",
+      description: "Sprint 5",
+      sections: ["Good", "Bad"],
+    });
+
+    assert.deepEqual(board, {
+      id: "xyz789",
+      name: "Team Retro",
+      url: "https://example.ideaboardz.test/for/Team Retro/xyz789",
+    });
+    assert.deepEqual(solverCall, {
+      siteKey: "site-key-abc",
+      pageUrl: "https://example.ideaboardz.test/",
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("createBoard throws without a captcha solver", async () => {
+  const client = new IdeaboardzClient("https://example.ideaboardz.test");
+  await assert.rejects(
+    () => client.createBoard({ name: "x", description: "y", sections: ["a"] }),
+    /captcha solver/,
+  );
+});
+
+test("createBoard surfaces a non-redirect response as a likely captcha rejection", async () => {
+  const formHtml = `
+    <form action="/retros" method="post">
+      <input name="authenticity_token" value="csrf-123" />
+      <div class="g-recaptcha" data-sitekey="site-key-abc"></div>
+    </form>
+  `;
+  const solver: CaptchaSolver = {
+    async solveRecaptchaV2() {
+      return "token";
+    },
+  };
+  const mock = installFetchMock(async (input) => {
+    const url = String(input);
+    if (url.endsWith("/")) {
+      return new Response(formHtml, { status: 200 });
+    }
+    return new Response("captcha failed", { status: 200 });
+  });
+
+  try {
+    const client = new IdeaboardzClient("https://example.ideaboardz.test", solver);
+    await assert.rejects(
+      () => client.createBoard({ name: "x", description: "y", sections: ["a"] }),
+      /did not redirect/,
     );
   } finally {
     mock.restore();

@@ -6,8 +6,13 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { z } from "zod";
 
 import { IdeaboardzClient, type BoardRef, type Point } from "./ideaboardz-client.js";
+import { TwoCaptchaSolver, type CaptchaSolver } from "./captcha-solver.js";
 
-const client = new IdeaboardzClient(process.env.IDEABOARDZ_BASE_URL);
+const captchaSolver: CaptchaSolver | undefined = process.env.TWOCAPTCHA_API_KEY
+  ? new TwoCaptchaSolver({ apiKey: process.env.TWOCAPTCHA_API_KEY })
+  : undefined;
+
+const client = new IdeaboardzClient(process.env.IDEABOARDZ_BASE_URL, captchaSolver);
 
 const server = new Server(
   {
@@ -29,6 +34,14 @@ const boardInputSchema = z.object({
 });
 
 const listPointsInputSchema = boardInputSchema;
+
+const createBoardInputSchema = z.object({
+  name: z.string().min(1).refine((value) => !value.includes("."), {
+    message: "Board name must not contain a '.' character",
+  }),
+  description: z.string().min(1),
+  sections: z.array(z.string().min(1)).min(1).max(10),
+});
 
 const createStickyInputSchema = boardInputSchema.extend({
   sectionId: z.number().int().positive(),
@@ -102,6 +115,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ["board"],
+        },
+      },
+      {
+        name: "create_board",
+        description:
+          "Create a new Ideaboardz board. Requires TWOCAPTCHA_API_KEY to be set so the reCAPTCHA can be solved.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Board name (must not contain a '.' character)",
+            },
+            description: {
+              type: "string",
+              description: "Board description",
+            },
+            sections: {
+              type: "array",
+              items: { type: "string" },
+              description: "Section titles (1-10)",
+            },
+          },
+          required: ["name", "description", "sections"],
         },
       },
       {
@@ -235,6 +272,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const boardRef = client.parseBoardRef(args.board);
       const board = await client.getBoard(boardRef);
       return jsonResult(board);
+    }
+
+    if (name === "create_board") {
+      const args = createBoardInputSchema.parse(input);
+      const board = await client.createBoard(args);
+      return jsonResult({ ok: true, board });
     }
 
     if (name === "list_stickies") {

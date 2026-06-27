@@ -4,6 +4,7 @@ MCP server for integrating with public boards on [ideaboardz.com](https://ideabo
 
 ## Features
 
+- Create a new board (solves the reCAPTCHA via 2captcha)
 - Read board metadata and section IDs
 - List stickies from a board
 - Create, update, move, delete, and vote stickies
@@ -11,6 +12,9 @@ MCP server for integrating with public boards on [ideaboardz.com](https://ideabo
 ## Requirements
 
 - Node.js 18+
+- `TWOCAPTCHA_API_KEY` — only needed for `create_board`. Ideaboardz protects board
+  creation with reCAPTCHA v2; the server solves it through your [2captcha](https://2captcha.com/)
+  account. All other tools work without it.
 
 ## Local Setup
 
@@ -59,7 +63,10 @@ Use this in your Claude MCP config (for example, Claude Desktop):
   "mcpServers": {
     "ideaboardz": {
       "command": "npx",
-      "args": ["-y", "ideaboardz-mcp-server"]
+      "args": ["-y", "ideaboardz-mcp-server"],
+      "env": {
+        "TWOCAPTCHA_API_KEY": "your-2captcha-api-key"
+      }
     }
   }
 }
@@ -69,6 +76,7 @@ If you published under a different package name, replace `ideaboardz-mcp-server`
 
 ### Example Claude Prompts
 
+- "Create a board named `Sprint 12 Retro` with sections `Went Well`, `To Improve`, `Action Items`."
 - "Get the sections for board `test/2` so I can see each `sectionId`."
 - "List all stickies in `test/2` and group them by section."
 - "Create a sticky in section `12345` on `test/2` with message `Ship weekly demo`."
@@ -100,6 +108,11 @@ All tools accept a `board` argument in one of these forms:
 - `test/2`
 
 ## Tools
+
+- `create_board`
+  - Input: `name` (no `.` character), `description`, `sections` (1-10 titles)
+  - Output: new board `id`, `name`, and `url`
+  - Requires `TWOCAPTCHA_API_KEY`
 
 - `get_board`
   - Input: `board`

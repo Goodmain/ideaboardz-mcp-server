@@ -1,5 +1,7 @@
 import { load } from "cheerio";
 
+import type { CaptchaSolver } from "./captcha-solver.js";
+
 export type BoardRef = {
   id: string;
   name: string;
@@ -22,6 +24,12 @@ export type Point = {
   message: string;
   votes_count: number;
   updated_at?: string;
+};
+
+export type CreateBoardInput = {
+  name: string;
+  description: string;
+  sections: string[];
 };
 
 const DEFAULT_BASE_URL = "https://ideaboardz.com";
@@ -52,15 +60,122 @@ function toBoardRef(value: string): BoardRef {
   return { id, name };
 }
 
+function parseCookies(headers: Headers): string {
+  // getSetCookie is available on undici/Node 18.14+; fall back to the raw header.
+  const raw =
+    typeof (headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === "function"
+      ? (headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+      : [headers.get("set-cookie") ?? ""].filter(Boolean);
+
+  return raw
+    .map((entry) => entry.split(";")[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
 export class IdeaboardzClient {
   private readonly baseUrl: string;
+  private readonly captchaSolver?: CaptchaSolver;
 
-  constructor(baseUrl = DEFAULT_BASE_URL) {
+  constructor(baseUrl = DEFAULT_BASE_URL, captchaSolver?: CaptchaSolver) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.captchaSolver = captchaSolver;
   }
 
   parseBoardRef(input: string): BoardRef {
     return toBoardRef(input);
+  }
+
+  async createBoard(input: CreateBoardInput): Promise<BoardRef & { url: string }> {
+    if (!this.captchaSolver) {
+      throw new Error(
+        "Board creation needs a captcha solver. Set TWOCAPTCHA_API_KEY so the server can solve the reCAPTCHA.",
+      );
+    }
+
+    const name = input.name.trim();
+    if (!name) {
+      throw new Error("Board name is required");
+    }
+    if (name.includes(".")) {
+      throw new Error("Board name must not contain a '.' character");
+    }
+
+    const description = input.description.trim();
+    if (!description) {
+      throw new Error("Board description is required");
+    }
+
+    const sections = input.sections.map((section) => section.trim()).filter(Boolean);
+    if (sections.length < 1 || sections.length > 10) {
+      throw new Error("A board needs between 1 and 10 sections");
+    }
+
+    // 1. Load the form to grab the CSRF token, reCAPTCHA site key, and session cookie.
+    const formResponse = await fetch(`${this.baseUrl}/`, {
+      headers: { "user-agent": "ideaboardz-mcp/0.1" },
+    });
+    if (!formResponse.ok) {
+      throw new Error(`Failed to load board form (${formResponse.status} ${formResponse.statusText})`);
+    }
+    const cookie = parseCookies(formResponse.headers);
+    const $ = load(await formResponse.text());
+
+    const authenticityToken = $('form[action="/retros"] input[name="authenticity_token"]').attr("value");
+    if (!authenticityToken) {
+      throw new Error("Could not find the CSRF token on the board form");
+    }
+
+    const siteKey = $(".g-recaptcha").attr("data-sitekey") ?? $("[data-sitekey]").attr("data-sitekey");
+    if (!siteKey) {
+      throw new Error("Could not find the reCAPTCHA site key on the board form");
+    }
+
+    // 2. Solve the reCAPTCHA via the configured solver.
+    const token = await this.captchaSolver.solveRecaptchaV2({
+      siteKey,
+      pageUrl: `${this.baseUrl}/`,
+    });
+
+    // 3. Submit the board creation form.
+    const form = new URLSearchParams();
+    form.set("utf8", "✓");
+    form.set("authenticity_token", authenticityToken);
+    form.set("name", name);
+    form.set("description", description);
+    form.set("numberOfSections", String(sections.length));
+    sections.forEach((section, index) => {
+      form.set(`sectionname${index}`, section);
+    });
+    form.set("g-recaptcha-response", token);
+    form.set("commit", "Create Board");
+
+    const headers: Record<string, string> = {
+      "user-agent": "ideaboardz-mcp/0.1",
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+    };
+    if (cookie) {
+      headers.cookie = cookie;
+    }
+
+    const createResponse = await fetch(`${this.baseUrl}/retros`, {
+      method: "POST",
+      redirect: "manual",
+      headers,
+      body: form,
+    });
+
+    // Rails redirects to /for/<name>/<id> on success.
+    const location = createResponse.headers.get("location");
+    if (location) {
+      const ref = toBoardRef(location.startsWith("http") ? location : `${this.baseUrl}${location}`);
+      return { ...ref, url: `${this.baseUrl}/for/${ref.name}/${ref.id}` };
+    }
+
+    const body = await createResponse.text();
+    throw new Error(
+      `Board creation did not redirect (status ${createResponse.status}). The reCAPTCHA may have been rejected. Response: ${body.slice(0, 500)}`,
+    );
   }
 
   async getBoard(board: BoardRef): Promise<BoardDetails> {
