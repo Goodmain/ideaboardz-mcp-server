@@ -46,7 +46,10 @@ After publishing, use this OpenCode config:
   "mcp": {
     "ideaboardz": {
       "type": "local",
-      "command": ["npx", "-y", "ideaboardz-mcp-server"]
+      "command": ["npx", "-y", "ideaboardz-mcp-server"],
+      "environment": {
+        "TWOCAPTCHA_API_KEY": "your-2captcha-api-key"
+      }
     }
   }
 }
@@ -94,7 +97,10 @@ Use this if you want to run from a local clone instead of npm:
   "mcp": {
     "ideaboardz": {
       "type": "local",
-      "command": ["node", "/absolute/path/to/ideaboardz-mcp/dist/index.js"]
+      "command": ["node", "/absolute/path/to/ideaboardz-mcp/dist/index.js"],
+      "environment": {
+        "TWOCAPTCHA_API_KEY": "your-2captcha-api-key"
+      }
     }
   }
 }
